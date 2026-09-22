@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gov-monitor"
+version = "0.1.0"
+description = "政府网站通知监测：定期轮询 gov-site-list 里的栏目，发现新通知落 SQLite。"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "程序员白大力" },
+]
+keywords = ["gov", "china", "government", "monitor", "crawler", "通知", "公文"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "requests>=2.25",
+    "beautifulsoup4>=4.9",
+    "gov-site-list>=0.1.0",
+]
+
+[project.scripts]
+gov-monitor = "gov_monitor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/baiyigali/gov-monitor"
+Repository = "https://github.com/baiyigali/gov-monitor"
+
+[tool.setuptools]
+packages = ["gov_monitor"]

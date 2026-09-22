@@ -1,0 +1,21 @@
+.DS_Store
+*.tmp
+*.swp
+.idea
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.pytest_cache/
+.venv/
+venv/
+
+# 数据库
+notices.db
+*.sqlite
+*.sqlite3
