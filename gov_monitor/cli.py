@@ -72,8 +72,8 @@ def stats(db_path: str = "notices.db") -> None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("用法: gov-watcher run [db_path]")
-        print("      gov-watcher stats [db_path]")
+        print("用法: gov-monitor run [db_path]")
+        print("      gov-monitor stats [db_path]")
         sys.exit(1)
 
     cmd = sys.argv[1]

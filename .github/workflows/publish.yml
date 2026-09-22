@@ -1,0 +1,102 @@
+name: Build & Publish
+
+# 流程（与 gov-site-list 一致）：
+#   push 到 main / PR   -> 构建 + 发布到 TestPyPI（验证打包不污染正式版）
+#   push tag v*         -> 构建 + 发布到正式 PyPI
+#   workflow_dispatch    -> 只构建，不发布
+#
+# 免密推送：在 PyPI / TestPyPI 后台把本仓库配置为"被信任的发布者"(Trusted Publisher / OIDC)，
+# 这里靠 id-token: write 走 OIDC，不需要任何 API token / 密码。
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build frontend
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Bump to dev version on main pushes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          python - <<'EOF'
+          import pathlib, re, os
+          p = pathlib.Path("pyproject.toml")
+          text = p.read_text(encoding="utf-8")
+          m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+          base = m.group(1)
+          run_id = os.environ["GITHUB_RUN_NUMBER"]
+          new_version = f"{base}.dev{run_id}"
+          p.write_text(text[:m.start()] + f'version = "{new_version}"' + text[m.end():], encoding="utf-8")
+          print(f"Version: {base} -> {new_version}")
+          EOF
+
+      - name: Build sdist & wheel
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # push main / PR -> 发到 TestPyPI
+  publish-test:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          verbose: true
+
+  # push tag v* -> 发到正式 PyPI
+  publish-prod:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
