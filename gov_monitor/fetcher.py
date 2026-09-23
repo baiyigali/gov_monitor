@@ -20,7 +20,7 @@ from urllib3.util.ssl_ import create_urllib3_context
 
 from .filter import filter_links
 
-TIMEOUT = 15
+TIMEOUT = (5, 10)  # (连接超时, 读取超时)，秒
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
