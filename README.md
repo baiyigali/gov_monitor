@@ -18,11 +18,39 @@ gov-monitor run
 
 会遍历 `gov-site-list` 里所有栏目，抓第一页链接，跟数据库里的已有 URL 做 diff，新的入库。
 
+### 启动 Web 服务
+
+```bash
+gov-monitor serve notices.db
+```
+
+常驻 HTTP 服务，后台每 5 分钟自动跑一轮采集，暴露 API 供下游（AI 分类、写作）调用。
+接口文档见 `http://localhost:8000/docs`。
+
 ### 查看统计
 
 ```bash
 gov-monitor stats
 ```
+
+## 开发
+
+### 跑测试
+
+```bash
+pip install -e . pytest
+
+# API 单元测试（快，不发外网请求，必须全过）
+python -m pytest gov_monitor/tests/test_api.py -v
+
+# 全量抓取基线测试（慢，会真实访问 136 个政府站，约 1 分钟）
+python -m gov_monitor.tests.test_baseline
+```
+
+- `test_api.py`：测所有 HTTP 接口（分类回写、写作计数、stats、404），用临时 DB，不依赖外网。
+- `test_baseline.py`：全量抓取回归测试，对比 `baseline.json`，检查有没有站从"能抓"退化。退出码 0=过，1=退化。
+
+
 
 ## 工作原理
 

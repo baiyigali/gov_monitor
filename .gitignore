@@ -21,6 +21,9 @@ notices.db
 *.sqlite
 *.sqlite3
 *.db-journal
+*.db-wal
+*.db-shm
+fetch_status.json
 
 # 环境变量
 .env
