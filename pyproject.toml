@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gov-monitor"
-version = "0.1.0"
+version = "1.0.2"
 description = "政府网站通知监测：定期轮询 gov-site-list 里的栏目，发现新通知落 SQLite。"
 readme = "README.md"
 requires-python = ">=3.9"

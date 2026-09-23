@@ -33,6 +33,56 @@ gov-monitor serve notices.db
 gov-monitor stats
 ```
 
+### Docker 部署
+
+在服务器上新建一个目录，放两个文件：
+
+**Dockerfile**：
+
+```dockerfile
+FROM python:3.14-slim
+RUN pip install --no-cache-dir git+https://github.com/baiyigali/gov-monitor.git
+WORKDIR /data
+EXPOSE 8000
+CMD ["gov-monitor", "serve", "/data/notices.db"]
+```
+
+**docker-compose.yml**：
+
+```yaml
+services:
+  gov-monitor:
+    build: .
+    container_name: gov-monitor
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      GOV_MONITOR_INTERVAL: "300"
+```
+
+然后启动：
+
+```bash
+mkdir -p data
+docker compose up -d --build
+```
+
+- 服务监听宿主机 `8000` 端口，API 文档在 `http://服务器IP:8000/docs`
+- SQLite 数据库和状态缓存放 `./data/` 目录，容器删了重建数据不丢
+- 默认每 5 分钟自动采集一轮，改间隔改 `docker-compose.yml` 里的 `GOV_MONITOR_INTERVAL`
+
+常用命令：
+
+```bash
+docker compose logs -f        # 看日志
+docker compose restart        # 重启
+docker compose down            # 停掉（数据保留在 ./data/）
+docker compose up -d --build   # 升级后重新构建
+```
+
 ## 开发
 
 ### 跑测试
@@ -89,10 +139,24 @@ gov-monitor run /path/to/my.db
 
 ## 项目赞助
 
-本项目由微信公众号 **「程序员白大力」** 提供赞助，感谢支持：
+本项目由以下微信公众号提供赞助，感谢支持：
+
+**「程序员白大力」** —— 法律科技 / 自动化内容创作
 
 <p align="center">
   <img src="docs/images/wechat-official-account-qr.png" alt="程序员白大力公众号二维码" width="240" />
+</p>
+
+**「法啊」** —— 法律科普 / 普法内容
+
+<p align="center">
+  <img src="docs/images/fa-official-account-qr.png" alt="法啊公众号二维码" width="240" />
+</p>
+
+**「极速法考」** —— 法考备考 / 法律职业资格考试
+
+<p align="center">
+  <img src="docs/images/jisu-fakao-official-account-qr.png" alt="极速法考公众号二维码" width="240" />
 </p>
 
 ## License
