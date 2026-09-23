@@ -1,98 +1,136 @@
-"""API 逻辑单元测试：直接测 NoticeDB 的方法（API 只是它的薄包装）。
+"""API 接口单元测试：用 TestClient 测 HTTP 层。
 
-不依赖 fastapi TestClient / httpx，CI 上零外部依赖。
 跑法：
     .venv/bin/python -m pytest gov_monitor/tests/test_api.py -v
 """
 
 from __future__ import annotations
 
-import sqlite3
-
 import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture()
-def db(tmp_path):
-    from gov_monitor.db import NoticeDB
-    d = NoticeDB(str(tmp_path / "test.db"))
-    d.connect()
-    yield d
-    d.close()
+def client(tmp_path):
+    """每个测试用一个干净的临时 DB。"""
+    from gov_monitor.server import create_app
+    app = create_app(str(tmp_path / "test.db"), poll_interval=999999)
+    yield TestClient(app)
 
 
-def _insert_row(db: NoticeDB, url: str, title: str = "测试标题",
-                site: str = "测试站", column: str = "测试栏目") -> int:
-    db.insert_new([{"url": url, "title": title, "site": site, "column": column}])
-    conn = db.connect()
-    row = conn.execute("SELECT rowid FROM notices WHERE url=?", (url,)).fetchone()
-    return row[0]
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
 
 
-def test_insert_and_known_urls(db):
-    assert db.count() == 0
-    _insert_row(db, "https://example.com/1")
-    assert db.count() == 1
-    assert "https://example.com/1" in db.known_urls()
+def test_pending_classify_returns_id(client, tmp_path):
+    # 直接往 DB 插两条
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for i in (1, 2):
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+            (f"https://example.com/{i}", f"标题{i}", "测试站", "测试栏目", "2026-01-01T00:00:00"),
+        )
+    conn.commit()
+    conn.close()
 
-
-def test_pending_classify_returns_id(db):
-    _insert_row(db, "https://example.com/1", title="第一条")
-    _insert_row(db, "https://example.com/2", title="第二条")
-
-    items = db.pending_classify(limit=10)
+    r = client.get("/items/pending-classify?limit=10")
+    assert r.status_code == 200
+    items = r.json()["items"]
     assert len(items) == 2
     assert all("id" in it for it in items)
     assert all(isinstance(it["id"], int) for it in items)
-    urls = {it["url"] for it in items}
-    assert "https://example.com/1" in urls
 
 
-def test_update_category(db):
-    item_id = _insert_row(db, "https://example.com/3")
-    assert db.update_category(item_id, "notice") is True
+def test_update_category(client, tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+        ("https://example.com/3", "标题3", "测试站", "栏目", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/3",)).fetchone()[0]
+    conn.close()
 
-    # 标了 notice 后不在 pending 里
-    pending_urls = {it["url"] for it in db.pending_classify(100)}
+    r = client.post(f"/items/{item_id}/category", json={"category": "notice"})
+    assert r.status_code == 200
+    assert r.json()["category"] == "notice"
+
+    # 再查应该不在 pending 里
+    r = client.get("/items/pending-classify?limit=100")
+    pending_urls = {it["url"] for it in r.json()["items"]}
     assert "https://example.com/3" not in pending_urls
 
 
-def test_update_category_not_found(db):
-    assert db.update_category(999999, "notice") is False
+def test_update_category_404(client):
+    r = client.post("/items/999999/category", json={"category": "notice"})
+    assert r.status_code == 404
 
 
-def test_pending_write_filters_by_category(db):
-    id1 = _insert_row(db, "https://example.com/a", title="通知A")
-    id2 = _insert_row(db, "https://example.com/b", title="新闻B")
+def test_pending_write_filters_by_category(client, tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, cat in [("https://example.com/a", "notice"), ("https://example.com/b", "news")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-01-01T00:00:00"),
+        )
+    conn.commit()
+    # 直接 UPDATE 分类
+    conn.execute("UPDATE notices SET category='notice' WHERE url='https://example.com/a'")
+    conn.execute("UPDATE notices SET category='news' WHERE url='https://example.com/b'")
+    conn.commit()
+    conn.close()
 
-    db.update_category(id1, "notice")
-    db.update_category(id2, "news")
-
-    items = db.pending_write(limit=10)
+    r = client.get("/items/pending-write?limit=10")
+    items = r.json()["items"]
     assert len(items) == 1
     assert items[0]["url"] == "https://example.com/a"
 
 
-def test_record_interpretation_increments_count(db):
-    item_id = _insert_row(db, "https://example.com/c")
-    db.update_category(item_id, "notice")
+def test_record_interpretation_increments_count(client, tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen, category) VALUES (?,?,?,?,?,?)",
+        ("https://example.com/c", "标题C", "站", "栏目", "2026-01-01T00:00:00", "notice"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/c",)).fetchone()[0]
+    conn.close()
 
-    assert db.record_interpretation(item_id, writer="doubao", article_title="解读1") is True
+    r = client.post(f"/items/{item_id}/interpreted",
+                    json={"writer": "doubao", "article_title": "解读1"})
+    assert r.status_code == 200
 
-    # 写完后不在 pending-write
-    assert len(db.pending_write(10)) == 0
+    r = client.get("/items/pending-write?limit=10")
+    assert len(r.json()["items"]) == 0
 
-    # interpretations 表有记录
-    conn = db.connect()
-    count = conn.execute("SELECT COUNT(*) FROM interpretations").fetchone()[0]
-    assert count == 1
-
-    # 主表 interpreted_count = 1
-    row = conn.execute(
-        "SELECT interpreted_count FROM notices WHERE rowid=?", (item_id,)
-    ).fetchone()
-    assert row[0] == 1
+    r = client.get("/stats")
+    assert r.json()["interpreted_total"] == 1
 
 
-def test_record_interpretation_not_found(db):
-    assert db.record_interpretation(999999, writer="x") is False
+def test_record_interpretation_404(client):
+    r = client.post("/items/999999/interpreted", json={"writer": "x"})
+    assert r.status_code == 404
+
+
+def test_stats(client, tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for i in (1, 2):
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+            (f"https://example.com/s{i}", f"标题{i}", "站", "栏目", "2026-01-01T00:00:00"),
+        )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/stats")
+    data = r.json()
+    assert data["total"] == 2
+    assert data["by_category"]["pending"] == 2
+    assert data["interpreted_total"] == 0
