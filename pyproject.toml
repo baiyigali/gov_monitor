@@ -28,6 +28,8 @@ dependencies = [
     "requests>=2.25",
     "beautifulsoup4>=4.9",
     "gov-site-list>=0.1.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
 ]
 
 [project.scripts]

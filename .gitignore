@@ -14,8 +14,22 @@ dist/
 .pytest_cache/
 .venv/
 venv/
+.python-version
 
 # 数据库
 notices.db
 *.sqlite
 *.sqlite3
+*.db-journal
+
+# 环境变量
+.env
+.env.local
+
+# 日志
+*.log
+
+# IDE
+.vscode/
+*.sublime-project
+*.sublime-workspace
