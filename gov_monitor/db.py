@@ -159,6 +159,15 @@ class NoticeDB:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_item(self, item_id: int) -> dict | None:
+        """按数字 id 查一条记录。"""
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT rowid AS id, url, title, site, column_name, category FROM notices WHERE rowid=?",
+            (item_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def update_category(self, item_id: int, category: str) -> bool:
         """按数字 id 回写分类结果，返回是否命中已有记录。"""
         conn = self.connect()

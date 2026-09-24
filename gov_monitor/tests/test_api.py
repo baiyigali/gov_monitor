@@ -2,6 +2,8 @@
 
 跑法：
     .venv/bin/python -m pytest gov_monitor/tests/test_api.py -v
+
+【规则】测试用例只准加不准删，除非用户明确要求。
 """
 
 from __future__ import annotations
@@ -134,3 +136,62 @@ def test_stats(client, tmp_path):
     assert data["total"] == 2
     assert data["by_category"]["pending"] == 2
     assert data["interpreted_total"] == 0
+
+
+def test_get_content(client, tmp_path, monkeypatch):
+    """GET /items/{id}/content：mock fetcher，不发外网请求。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+        ("https://example.com/doc1", "关于XX的通知", "站", "栏目", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/doc1",)).fetchone()[0]
+    conn.close()
+
+    fake_html = """
+    <html><body>
+    <nav>导航链接</nav>
+    <h1>关于XX的通知</h1>
+    <p>现将有关事项通知如下：一、XXX</p>
+    <p>此通知。</p>
+    <footer>版权所有</footer>
+    </body></html>
+    """
+    monkeypatch.setattr("gov_monitor.fetcher.fetch_page", lambda url, encoding="utf-8": fake_html)
+
+    r = client.get(f"/items/{item_id}/content")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == item_id
+    assert data["url"] == "https://example.com/doc1"
+    assert data["title"] == "关于XX的通知"
+    assert "导航" not in data["content"]
+    assert "版权" not in data["content"]
+    assert "通知" in data["content"]
+
+
+def test_get_content_404(client):
+    r = client.get("/items/999999/content")
+    assert r.status_code == 404
+
+
+def test_get_content_fetch_error(client, tmp_path, monkeypatch):
+    """抓页面失败返回 502。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+        ("https://example.com/err", "标题", "站", "栏目", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/err",)).fetchone()[0]
+    conn.close()
+
+    def boom(url, encoding="utf-8"):
+        raise Exception("timeout")
+    monkeypatch.setattr("gov_monitor.fetcher.fetch_page", boom)
+
+    r = client.get(f"/items/{item_id}/content")
+    assert r.status_code == 502

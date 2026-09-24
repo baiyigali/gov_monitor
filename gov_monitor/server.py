@@ -99,6 +99,25 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
     def pending_classify(limit: int = 20):
         return {"items": db.pending_classify(limit)}
 
+    @app.get("/items/{item_id}/content")
+    def get_content(item_id: int):
+        """抓详情页正文，返回给分类服务用，不用前端自己开网页。"""
+        item = db.get_item(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="item not found")
+        from .fetcher import fetch_page
+        from bs4 import BeautifulSoup
+        try:
+            html = fetch_page(item["url"])
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+            content = "\n".join(lines)[:3000]
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"fetch failed: {e}")
+        return {"id": item_id, "url": item["url"], "title": item["title"], "content": content}
+
     @app.post("/items/{item_id}/category")
     def set_category(item_id: int, body: CategoryIn):
         if not db.update_category(item_id, body.category):
