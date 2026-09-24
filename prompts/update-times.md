@@ -16,7 +16,7 @@ gov-monitor 服务里已经有一批已分类为 notice 的链接，但缺发布
 ### 拉待提取时间的链接
 
 ```
-GET http://{服务地址}/v2/items/pending-write?limit=10&published_after=2020-01-01
+GET {服务地址}/v2/items/pending-write?limit=10&published_after=2020-01-01
 ```
 
 用 v2 接口，`published_after` 不传则拉全部已分类 notice。也可以用 `max_count=0` 只拉还没写过的。
@@ -42,7 +42,7 @@ GET http://{服务地址}/v2/items/pending-write?limit=10&published_after=2020-0
 ### 拉正文内容
 
 ```
-GET http://{服务地址}/items/{id}/content
+GET {服务地址}/items/{id}/content
 ```
 
 返回正文，同 classify.md。
@@ -50,7 +50,7 @@ GET http://{服务地址}/items/{id}/content
 ### 回写时间
 
 ```
-POST http://{服务地址}/items/{id}/times
+POST {服务地址}/items/{id}/times
 Content-Type: application/json
 
 {

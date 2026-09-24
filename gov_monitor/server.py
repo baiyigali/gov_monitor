@@ -127,7 +127,7 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
-            content = "\n".join(lines)[:3000]
+            content = "\n".join(lines)[:10000]
             db.set_cached_content(item["url"], content)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"fetch failed: {e}")

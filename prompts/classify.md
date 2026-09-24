@@ -14,7 +14,7 @@ gov-monitor 服务采集了一批政府网站链接，还没分类。你的任�
 ### 拉待分类
 
 ```
-GET http://{服务地址}/items/pending-classify?limit=10
+GET {服务地址}/items/pending-classify?limit=10
 ```
 
 返回：
@@ -36,7 +36,7 @@ GET http://{服务地址}/items/pending-classify?limit=10
 ### 拉正文内容
 
 ```
-GET http://{服务地址}/items/{id}/content
+GET {服务地址}/items/{id}/content
 ```
 
 返回：
@@ -55,7 +55,7 @@ GET http://{服务地址}/items/{id}/content
 ### 回写分类
 
 ```
-POST http://{服务地址}/items/{id}/category
+POST {服务地址}/items/{id}/category
 Content-Type: application/json
 
 {"category": "notice"}
