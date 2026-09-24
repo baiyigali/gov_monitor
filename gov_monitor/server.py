@@ -83,7 +83,7 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
         logger.info("后台采集调度已启动，间隔 %d 秒", poll_interval)
         yield
 
-    app = FastAPI(title="gov-monitor", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="gov-monitor", version="1.0.4", lifespan=lifespan)
 
     @app.get("/health")
     def health():
