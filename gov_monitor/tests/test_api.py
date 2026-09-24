@@ -320,3 +320,60 @@ def test_pending_write_published_after(client, tmp_path):
     items = r.json()["items"]
     assert len(items) == 1
     assert items[0]["url"] == "https://example.com/n2"
+
+
+def test_list_notices_default_latest(client, tmp_path):
+    """不传时间，按最新倒序返回。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, pt in [("https://example.com/a", "2026-09-20"), ("https://example.com/b", "2026-09-24")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, publish_time) VALUES (?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-09-24T00:00:00", "notice", pt),
+        )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/v2/items/notices?limit=10")
+    items = r.json()["items"]
+    assert items[0]["url"] == "https://example.com/b"  # 最新的在前
+
+
+def test_list_notices_published_after(client, tmp_path):
+    """传 published_after，按增序拉之后的。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, pt in [("https://example.com/old", "2026-09-10"),
+                    ("https://example.com/mid", "2026-09-20"),
+                    ("https://example.com/new", "2026-09-24")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, publish_time) VALUES (?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-09-24T00:00:00", "notice", pt),
+        )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/v2/items/notices?limit=10&published_after=2026-09-15")
+    items = r.json()["items"]
+    assert len(items) == 2
+    assert items[0]["url"] == "https://example.com/mid"  # 最早的在前
+    assert items[1]["url"] == "https://example.com/new"
+
+
+def test_list_notices_document_after(client, tmp_path):
+    """传 document_after，按成文时间增序拉。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, dt in [("https://example.com/d1", "2026-09-01"),
+                    ("https://example.com/d2", "2026-09-15")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, document_time) VALUES (?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-09-24T00:00:00", "notice", dt),
+        )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/v2/items/notices?limit=10&document_after=2026-09-10")
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["url"] == "https://example.com/d2"

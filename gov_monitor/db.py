@@ -254,6 +254,36 @@ class NoticeDB:
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
+    def list_notices(
+        self,
+        limit: int = 10,
+        published_after: str | None = None,
+        document_after: str | None = None,
+    ) -> list[dict]:
+        """按时间拉通知。不传时间按最新倒序；传了时间按该时间增序拉之后的。"""
+        conn = self.connect()
+        sql = """
+            SELECT rowid AS id, url, title, site, column_name,
+                   first_seen, publish_time, document_time, category
+            FROM notices
+            WHERE category = 'notice'
+        """
+        params: list = []
+        if published_after:
+            sql += " AND publish_time >= ?"
+            params.append(published_after)
+            order = "publish_time ASC"
+        elif document_after:
+            sql += " AND document_time >= ?"
+            params.append(document_after)
+            order = "document_time ASC"
+        else:
+            order = "publish_time DESC, first_seen DESC"
+        sql += f" ORDER BY {order} LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
     def record_interpretation(
         self,
         item_id: int,
@@ -262,7 +292,7 @@ class NoticeDB:
         article_path: str | None = None,
         status: str = "success",
     ) -> bool:
-        """写作完成后：按数字 id 定位，往 interpretations 插记录，主表计数 +1。"""
+        """写作完成后：按数字 id 定位，往 interpretations 插记录。成功才 +count，失败只记录不加 count。"""
         conn = self.connect()
         with self._write_lock:
             row = conn.execute(
@@ -280,13 +310,14 @@ class NoticeDB:
                 """,
                 (url, writer, article_title, article_path, status, now),
             )
-            conn.execute(
-                """
-                UPDATE notices
-                SET interpreted_count = interpreted_count + 1, last_written_at = ?
-                WHERE rowid = ?
-                """,
-                (now, item_id),
-            )
+            if status == "success":
+                conn.execute(
+                    """
+                    UPDATE notices
+                    SET interpreted_count = interpreted_count + 1, last_written_at = ?
+                    WHERE rowid = ?
+                    """,
+                    (now, item_id),
+                )
             conn.commit()
         return True

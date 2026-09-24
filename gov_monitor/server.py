@@ -144,6 +144,10 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
     def pending_write(limit: int = 5):
         return {"items": db.pending_write(limit)}
 
+    @app.get("/v2/items/notices")
+    def list_notices(limit: int = 10, published_after: str | None = None, document_after: str | None = None):
+        return {"items": db.list_notices(limit=limit, published_after=published_after, document_after=document_after)}
+
     @app.get("/v2/items/pending-write")
     def pending_write_v2(limit: int = 5, max_count: int = 3, since: str | None = None, published_after: str | None = None):
         return {"items": db.pending_write_v2(limit=limit, max_count=max_count, since=since, published_after=published_after)}
