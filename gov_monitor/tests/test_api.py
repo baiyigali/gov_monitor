@@ -377,3 +377,33 @@ def test_list_notices_document_after(client, tmp_path):
     items = r.json()["items"]
     assert len(items) == 1
     assert items[0]["url"] == "https://example.com/d2"
+
+
+def test_get_content_cache(client, tmp_path, monkeypatch):
+    """第一次请求抓网页并存缓存，第二次直接命中缓存不再抓。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+        ("https://example.com/cache", "标题", "站", "栏目", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/cache",)).fetchone()[0]
+    conn.close()
+
+    calls = {"n": 0}
+    def fake_fetch(url):
+        calls["n"] += 1
+        return "<html><body><p>正文内容</p></body></html>"
+    monkeypatch.setattr("gov_monitor.fetcher.fetch_page", fake_fetch)
+
+    r1 = client.get(f"/items/{item_id}/content")
+    assert r1.status_code == 200
+    assert r1.json()["cached"] is False
+    assert calls["n"] == 1
+
+    r2 = client.get(f"/items/{item_id}/content")
+    assert r2.status_code == 200
+    assert r2.json()["cached"] is True
+    assert calls["n"] == 1  # 第二次没再抓
+    assert r2.json()["content"] == r1.json()["content"]

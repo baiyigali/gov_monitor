@@ -83,7 +83,7 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
         logger.info("后台采集调度已启动，间隔 %d 秒", poll_interval)
         yield
 
-    app = FastAPI(title="gov-monitor", version="1.0.4", lifespan=lifespan)
+    app = FastAPI(title="gov-monitor", version="1.0.5", lifespan=lifespan)
 
     @app.get("/health")
     def health():
@@ -110,11 +110,15 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
         return {"items": db.pending_classify(limit)}
 
     @app.get("/items/{item_id}/content")
+    @app.get("/items/{item_id}/content")
     def get_content(item_id: int):
-        """抓详情页正文，返回给分类服务用，不用前端自己开网页。"""
+        """抓详情页正文，带 SQLite 缓存，抓过的不再请求政府网站。"""
         item = db.get_item(item_id)
         if not item:
             raise HTTPException(status_code=404, detail="item not found")
+        cached = db.get_cached_content(item["url"])
+        if cached is not None:
+            return {"id": item_id, "url": item["url"], "title": item["title"], "content": cached, "cached": True}
         from .fetcher import fetch_page
         from bs4 import BeautifulSoup
         try:
@@ -124,10 +128,10 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
                 tag.decompose()
             lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
             content = "\n".join(lines)[:3000]
+            db.set_cached_content(item["url"], content)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"fetch failed: {e}")
-        return {"id": item_id, "url": item["url"], "title": item["title"], "content": content}
-
+        return {"id": item_id, "url": item["url"], "title": item["title"], "content": content, "cached": False}
     @app.post("/items/{item_id}/category")
     def set_category(item_id: int, body: CategoryIn):
         if not db.update_category(item_id, body.category):

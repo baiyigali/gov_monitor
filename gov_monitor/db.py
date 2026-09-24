@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS interpretations (
     written_at     TEXT NOT NULL,
     FOREIGN KEY (url) REFERENCES notices(url)
 );
+
+CREATE TABLE IF NOT EXISTS content_cache (
+    url        TEXT PRIMARY KEY,
+    content    TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 """
 
 # 索引要等列迁移完成后再建，否则老表缺列会报错
@@ -283,6 +289,20 @@ class NoticeDB:
         params.append(limit)
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
+
+    def get_cached_content(self, url: str) -> str | None:
+        conn = self.connect()
+        row = conn.execute("SELECT content FROM content_cache WHERE url=?", (url,)).fetchone()
+        return row["content"] if row else None
+
+    def set_cached_content(self, url: str, content: str) -> None:
+        conn = self.connect()
+        with self._write_lock:
+            conn.execute(
+                "INSERT OR REPLACE INTO content_cache (url, content, fetched_at) VALUES (?, ?, ?)",
+                (url, content, _now()),
+            )
+            conn.commit()
 
     def record_interpretation(
         self,
