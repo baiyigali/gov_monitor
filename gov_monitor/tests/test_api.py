@@ -195,3 +195,53 @@ def test_get_content_fetch_error(client, tmp_path, monkeypatch):
 
     r = client.get(f"/items/{item_id}/content")
     assert r.status_code == 502
+
+
+def test_admin_run(client, monkeypatch):
+    """POST /admin/run 触发采集，mock check_new 不发外网。"""
+    monkeypatch.setattr("gov_monitor.server.check_new", lambda db_path: [{"url": "x", "title": "y"}])
+    r = client.post("/admin/run")
+    assert r.status_code == 200
+    assert r.json()["started"] is True
+    assert r.json()["new"] == 1
+
+
+def test_interpretation_failed_not_counted(client, tmp_path):
+    """写 failed 状态不增加 interpreted_total。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen, category) VALUES (?,?,?,?,?,?)",
+        ("https://example.com/fail", "标题", "站", "栏目", "2026-01-01T00:00:00", "notice"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/fail",)).fetchone()[0]
+    conn.close()
+
+    r = client.post(f"/items/{item_id}/interpreted",
+                    json={"writer": "doubao", "status": "failed"})
+    assert r.status_code == 200
+
+    r = client.get("/stats")
+    assert r.json()["interpreted_total"] == 0
+
+
+def test_pending_write_ordering(client, tmp_path):
+    """pending-write：interpreted_count 低的优先。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, cnt, ts in [
+        ("https://example.com/p0", 0, "2026-01-01T00:00:00"),
+        ("https://example.com/p1", 1, "2026-01-02T00:00:00"),
+        ("https://example.com/p2", 2, "2026-01-03T00:00:00"),
+    ]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, interpreted_count) VALUES (?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", ts, "notice", cnt),
+        )
+    conn.commit()
+    conn.close()
+
+    r = client.get("/items/pending-write?limit=10")
+    items = r.json()["items"]
+    assert items[0]["url"] == "https://example.com/p0"
