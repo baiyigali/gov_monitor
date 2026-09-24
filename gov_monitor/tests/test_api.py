@@ -3,7 +3,9 @@
 跑法：
     .venv/bin/python -m pytest gov_monitor/tests/test_api.py -v
 
-【规则】测试用例只准加不准删，除非用户明确要求。
+【规则】
+1. 测试用例只准加不准删，除非用户明确要求。
+2. 已有接口不要删、不要改行为/参数/返回结构，要加功能就加新接口（如 /v2/...），不破坏兼容。除非用户明确要求改。
 """
 
 from __future__ import annotations
@@ -245,3 +247,76 @@ def test_pending_write_ordering(client, tmp_path):
     r = client.get("/items/pending-write?limit=10")
     items = r.json()["items"]
     assert items[0]["url"] == "https://example.com/p0"
+
+
+def test_pending_write_v2_default_max_count_3(client, tmp_path):
+    """v2 默认 max_count=3，写过1次的也能拉出来。旧接口默认0不变。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen, category, interpreted_count) VALUES (?,?,?,?,?,?,?)",
+        ("https://example.com/w1", "写过1次", "站", "栏目", "2026-01-01T00:00:00", "notice", 1),
+    )
+    conn.commit()
+    conn.close()
+
+    # 旧接口（默认0）：拉不到
+    r = client.get("/items/pending-write?limit=10")
+    assert len(r.json()["items"]) == 0
+
+    # v2（默认3）：能拉到
+    r = client.get("/v2/items/pending-write?limit=10")
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["url"] == "https://example.com/w1"
+
+
+def test_update_times(client, tmp_path):
+    """POST /items/{id}/times 回写发布时间和成文时间。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    conn.execute(
+        "INSERT INTO notices (url, title, site, column_name, first_seen) VALUES (?,?,?,?,?)",
+        ("https://example.com/t1", "标题", "站", "栏目", "2026-01-01T00:00:00"),
+    )
+    conn.commit()
+    item_id = conn.execute("SELECT rowid FROM notices WHERE url=?", ("https://example.com/t1",)).fetchone()[0]
+    conn.close()
+
+    r = client.post(f"/items/{item_id}/times",
+                    json={"publish_time": "2026-09-24", "document_time": "2026-09-11"})
+    assert r.status_code == 200
+
+    # 再拉 pending-write 应该带上时间字段
+    r = client.get("/items/pending-write?limit=10&max_count=0")
+    # 这条还没分类成 notice，不在 pending-write 里，直接查 DB
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    row = conn.execute("SELECT publish_time, document_time FROM notices WHERE rowid=?", (item_id,)).fetchone()
+    assert row[0] == "2026-09-24"
+    assert row[1] == "2026-09-11"
+    conn.close()
+
+
+def test_update_times_404(client):
+    r = client.post("/items/999999/times", json={"publish_time": "2026-09-24"})
+    assert r.status_code == 404
+
+
+def test_pending_write_published_after(client, tmp_path):
+    """published_after 按 publish_time 过滤。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    # 两条 notice，publish_time 不同
+    for url, pt in [("https://example.com/n1", "2026-09-20"), ("https://example.com/n2", "2026-09-24")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, publish_time, interpreted_count) VALUES (?,?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-09-24T00:00:00", "notice", pt, 0),
+        )
+    conn.commit()
+    conn.close()
+
+    # published_after=2026-09-23 只拉 n2
+    r = client.get("/v2/items/pending-write?limit=10&published_after=2026-09-23")
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["url"] == "https://example.com/n2"

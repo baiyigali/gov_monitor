@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS notices (
     site              TEXT NOT NULL,
     column_name       TEXT NOT NULL,
     first_seen        TEXT NOT NULL,
+    publish_time      TEXT,
+    document_time     TEXT,
     category          TEXT,
     category_at       TEXT,
     interpreted_count INTEGER NOT NULL DEFAULT 0,
@@ -56,6 +58,8 @@ _COLUMN_MIGRATIONS = [
         "ALTER TABLE notices ADD COLUMN interpreted_count INTEGER NOT NULL DEFAULT 0",
     ),
     ("last_written_at", "ALTER TABLE notices ADD COLUMN last_written_at TEXT"),
+    ("publish_time", "ALTER TABLE notices ADD COLUMN publish_time TEXT"),
+    ("document_time", "ALTER TABLE notices ADD COLUMN document_time TEXT"),
 ]
 
 
@@ -179,21 +183,70 @@ class NoticeDB:
             conn.commit()
         return cur.rowcount > 0
 
+    def update_times(self, item_id: int, publish_time: str | None = None,
+                     document_time: str | None = None) -> bool:
+        """回写发布时间和成文时间（由外部从页面提取后维护）。"""
+        conn = self.connect()
+        with self._write_lock:
+            fields = []
+            params: list = []
+            if publish_time is not None:
+                fields.append("publish_time = ?")
+                params.append(publish_time)
+            if document_time is not None:
+                fields.append("document_time = ?")
+                params.append(document_time)
+            if not fields:
+                return True
+            params.append(item_id)
+            cur = conn.execute(
+                f"UPDATE notices SET {', '.join(fields)} WHERE rowid = ?",
+                params,
+            )
+            conn.commit()
+        return cur.rowcount > 0
+
     # ---- 写作服务回写 ------------------------------------------------------
 
     def pending_write(self, limit: int = 5) -> list[dict]:
-        """拉可写作的通知：已分类为 notice、还没被写过（interpreted_count=0）。"""
+        """旧版：已分类为 notice，只拉没写过的（interpreted_count=0）。"""
         conn = self.connect()
         rows = conn.execute(
             """
             SELECT rowid AS id, url, title, site, column_name, first_seen, category
             FROM notices
             WHERE category = 'notice' AND interpreted_count = 0
-            ORDER BY interpreted_count ASC, first_seen DESC
+            ORDER BY first_seen DESC
             LIMIT ?
             """,
             (limit,),
         ).fetchall()
+        return [dict(r) for r in rows]
+
+    def pending_write_v2(
+        self,
+        limit: int = 5,
+        max_count: int = 3,
+        since: str | None = None,
+        published_after: str | None = None,
+    ) -> list[dict]:
+        """新版：写得少的优先，max_count=3 可重复写，published_after 按 publish_time 过滤。"""
+        conn = self.connect()
+        sql = """
+            SELECT rowid AS id, url, title, site, column_name, first_seen, publish_time, document_time, category, interpreted_count
+            FROM notices
+            WHERE category = 'notice' AND interpreted_count <= ?
+        """
+        params: list = [max_count]
+        if since:
+            sql += " AND first_seen >= ?"
+            params.append(since)
+        if published_after:
+            sql += " AND publish_time >= ?"
+            params.append(published_after)
+        sql += " ORDER BY interpreted_count ASC, first_seen DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
     def record_interpretation(

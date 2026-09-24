@@ -1,13 +1,18 @@
 """Web 服务：把采集结果和下游队列暴露成 HTTP API。
 
 采集在服务后台按 poll_interval 自动跑一轮；下游（AI 分类服务、写作服务）
-通过这几个接口拉活、回写，不直接碰 SQLite 文件：
+通过这几个接口拉活、回写，不直接碰 SQLite 文件。
+
+【规则】已有接口不删不改，要加功能就加新接口（如 /v2/...），不破坏兼容。
 
   GET  /health
   GET  /stats
   GET  /items/pending-classify?limit=20   → AI 分类服务拉待分类（返回带数字 id）
+  GET  /items/{id}/content                → 抓详情页正文返回给分类服务
   POST /items/{id}/category               → AI 分类服务回写分类
-  GET  /items/pending-write?limit=5       → 写作服务拉可写通知
+  POST /items/{id}/times                  → 回写 publish_time / document_time
+  GET  /items/pending-write?limit=5       → 写作服务拉可写通知（只拉没写过的）
+  GET  /v2/items/pending-write           → 新版：max_count=3 可重复写，支持 published_after
   POST /items/{id}/interpreted            → 写作服务写完回写计数+1
   POST /admin/run                         → 手动触发一轮采集
 """
@@ -30,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 class CategoryIn(BaseModel):
     category: str  # pending / notice / news / other
+
+
+class TimesIn(BaseModel):
+    publish_time: str | None = None
+    document_time: str | None = None
 
 
 class InterpretedIn(BaseModel):
@@ -124,9 +134,19 @@ def create_app(db_path: str = "notices.db", poll_interval: int = 300) -> FastAPI
             raise HTTPException(status_code=404, detail="item not found")
         return {"ok": True, "id": item_id, "category": body.category}
 
+    @app.post("/items/{item_id}/times")
+    def set_times(item_id: int, body: TimesIn):
+        if not db.update_times(item_id, body.publish_time, body.document_time):
+            raise HTTPException(status_code=404, detail="item not found")
+        return {"ok": True, "id": item_id}
+
     @app.get("/items/pending-write")
     def pending_write(limit: int = 5):
         return {"items": db.pending_write(limit)}
+
+    @app.get("/v2/items/pending-write")
+    def pending_write_v2(limit: int = 5, max_count: int = 3, since: str | None = None, published_after: str | None = None):
+        return {"items": db.pending_write_v2(limit=limit, max_count=max_count, since=since, published_after=published_after)}
 
     @app.post("/items/{item_id}/interpreted")
     def mark_interpreted(item_id: int, body: InterpretedIn):
