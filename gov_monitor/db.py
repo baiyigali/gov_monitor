@@ -185,7 +185,7 @@ class NoticeDB:
 
     def update_times(self, item_id: int, publish_time: str | None = None,
                      document_time: str | None = None) -> bool:
-        """回写发布时间和成文时间（由外部从页面提取后维护）。"""
+        """回写发布时间和成文时间。传 null 表示提取过了但没有，写进去避免重复处理。"""
         conn = self.connect()
         with self._write_lock:
             fields = []
@@ -193,9 +193,14 @@ class NoticeDB:
             if publish_time is not None:
                 fields.append("publish_time = ?")
                 params.append(publish_time)
+            elif publish_time == "":
+                # 显式传空字符串 = 提取过但没有，写 null
+                fields.append("publish_time = NULL")
             if document_time is not None:
                 fields.append("document_time = ?")
                 params.append(document_time)
+            elif document_time == "":
+                fields.append("document_time = NULL")
             if not fields:
                 return True
             params.append(item_id)
