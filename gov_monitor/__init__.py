@@ -6,4 +6,4 @@ from .filter import filter_links
 from .runner import check_new
 
 __all__ = ["NoticeDB", "fetch_notice_links", "filter_links", "check_new"]
-__version__ = "1.0.6"
+__version__ = "1.0.7"
