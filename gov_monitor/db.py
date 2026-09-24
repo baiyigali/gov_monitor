@@ -290,6 +290,42 @@ class NoticeDB:
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
+
+    def list_notices_v3(
+        self,
+        limit: int = 10,
+        page: int = 1,
+        published_after: str | None = None,
+        document_after: str | None = None,
+        sort_by: str = "publish_time",
+        order: str = "desc",
+    ) -> list[dict]:
+        """v3: 分页 + 排序。sort_by 白名单防注入。"""
+        allowed = {"publish_time", "document_time", "first_seen"}
+        if sort_by not in allowed:
+            sort_by = "publish_time"
+        order_sql = "ASC" if order.lower() == "asc" else "DESC"
+        conn = self.connect()
+        sql = """
+            SELECT rowid AS id, url, title, site, column_name,
+                   first_seen, publish_time, document_time, category
+            FROM notices
+            WHERE category = 'notice'
+        """
+        params: list = []
+        if published_after:
+            sql += " AND publish_time >= ?"
+            params.append(published_after)
+        if document_after:
+            sql += " AND document_time >= ?"
+            params.append(document_after)
+        sql += f" ORDER BY {sort_by} {order_sql}"
+        offset = (page - 1) * limit
+        sql += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
     def get_cached_content(self, url: str) -> str | None:
         conn = self.connect()
         row = conn.execute("SELECT content FROM content_cache WHERE url=?", (url,)).fetchone()

@@ -407,3 +407,38 @@ def test_get_content_cache(client, tmp_path, monkeypatch):
     assert r2.json()["cached"] is True
     assert calls["n"] == 1  # 第二次没再抓
     assert r2.json()["content"] == r1.json()["content"]
+
+
+def test_v3_notices_pagination_and_sort(client, tmp_path):
+    """v3: 分页 + 排序。"""
+    import sqlite3
+    conn = sqlite3.connect(str(tmp_path / "test.db"))
+    for url, pt in [("https://example.com/old", "2026-01-01"),
+                    ("https://example.com/mid", "2026-06-01"),
+                    ("https://example.com/new", "2026-09-01")]:
+        conn.execute(
+            "INSERT INTO notices (url, title, site, column_name, first_seen, category, publish_time) VALUES (?,?,?,?,?,?,?)",
+            (url, url, "站", "栏目", "2026-09-24T00:00:00", "notice", pt),
+        )
+    conn.commit()
+    conn.close()
+
+    # 默认 desc
+    r = client.get("/v3/items/notices?limit=10")
+    items = r.json()["items"]
+    assert items[0]["url"] == "https://example.com/new"
+
+    # asc
+    r = client.get("/v3/items/notices?limit=10&order=asc")
+    items = r.json()["items"]
+    assert items[0]["url"] == "https://example.com/old"
+
+    # 分页
+    r = client.get("/v3/items/notices?limit=2&page=1")
+    assert len(r.json()["items"]) == 2
+    r = client.get("/v3/items/notices?limit=2&page=2")
+    assert len(r.json()["items"]) == 1
+
+    # sort_by
+    r = client.get("/v3/items/notices?limit=10&sort_by=document_time&order=desc")
+    assert r.status_code == 200
